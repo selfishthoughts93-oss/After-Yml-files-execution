@@ -1,0 +1,1252 @@
+Create the GKE Folder in  Internal system to create the K8's Cluster through terraform
+
+Project ID      : bankingproject2027
+VPC             : bankingproject2027-vpc
+Existing Subnet : bankingproject2027-subnet
+Application     : Banking-3Tier-Warfile
+Cluster Name    : securebank-gke
+Node Pool       : securebank-nodepool
+Namespace       : securebank
+
+-----------------------------------------------
+
+provider.tf
+
+terraform {
+  required_version = ">= 1.5.0"
+
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 6.0"
+    }
+  }
+}
+
+provider "google" {
+  credentials = file("terraform-key.json")
+
+  project = var.project_id
+  region  = var.region
+  zone    = var.zone
+}
+
+--------------------------------------------
+
+variables.tf
+
+variable "project_id" {
+  type = string
+}
+
+variable "region" {
+  type = string
+}
+
+variable "zone" {
+  type = string
+}
+
+variable "network_name" {
+  type = string
+}
+
+variable "gke_subnet_name" {
+  type = string
+}
+
+variable "gke_subnet_cidr" {
+  type = string
+}
+
+variable "pods_secondary_range" {
+  type = string
+}
+
+variable "services_secondary_range" {
+  type = string
+}
+
+variable "cluster_name" {
+  type = string
+}
+
+variable "node_count" {
+  type = number
+}
+
+variable "machine_type" {
+  type = string
+}
+
+-------------------------------------------------------
+
+terraform.tfvars
+
+project_id = "bankingproject2027"
+
+region = "us-central1"
+
+zone = "us-central1-a"
+
+network_name = "bankingproject2027-vpc"
+
+gke_subnet_name = "securebank-gke-subnet"
+
+gke_subnet_cidr = "10.20.0.0/24"
+
+pods_secondary_range = "10.30.0.0/16"
+
+services_secondary_range = "10.40.0.0/20"
+
+cluster_name = "securebank-gke"
+
+node_count = 2
+
+machine_type = "e2-standard-2"
+
+------------------------------------------------------------
+
+main.tf
+
+data "google_compute_network" "existing_vpc" {
+  name = var.network_name
+}
+
+resource "google_compute_subnetwork" "securebank_gke_subnet" {
+
+  name          = var.gke_subnet_name
+  ip_cidr_range = var.gke_subnet_cidr
+
+  region  = var.region
+  network = data.google_compute_network.existing_vpc.id
+
+  secondary_ip_range {
+    range_name    = "securebank-pods-range"
+    ip_cidr_range = var.pods_secondary_range
+  }
+
+  secondary_ip_range {
+    range_name    = "securebank-services-range"
+    ip_cidr_range = var.services_secondary_range
+  }
+}
+
+resource "google_container_cluster" "securebank_gke" {
+
+  name     = var.cluster_name
+  location = var.zone
+
+  network    = data.google_compute_network.existing_vpc.name
+  subnetwork = google_compute_subnetwork.securebank_gke_subnet.name
+
+  remove_default_node_pool = true
+
+  initial_node_count = 1
+
+  networking_mode = "VPC_NATIVE"
+
+  release_channel {
+    channel = "REGULAR"
+  }
+
+  workload_identity_config {
+    workload_pool = "${var.project_id}.svc.id.goog"
+  }
+
+  ip_allocation_policy {
+    cluster_secondary_range_name  = "securebank-pods-range"
+    services_secondary_range_name = "securebank-services-range"
+  }
+
+  deletion_protection = false
+}
+
+resource "google_container_node_pool" "securebank_nodepool" {
+
+  name     = "securebank-nodepool"
+  cluster  = google_container_cluster.securebank_gke.name
+  location = var.zone
+
+  node_count = var.node_count
+
+  node_config {
+
+    machine_type = var.machine_type
+
+    disk_size_gb = 50
+
+    disk_type = "pd-balanced"
+
+    oauth_scopes = [
+      "https://www.googleapis.com/auth/cloud-platform"
+    ]
+
+    labels = {
+
+      application = "securebank"
+
+      environment = "dev"
+
+      managed_by = "terraform"
+    }
+
+    tags = [
+      "securebank",
+      "gke-node"
+    ]
+  }
+
+  management {
+    auto_repair  = true
+    auto_upgrade = true
+  }
+}
+
+------------------------------------------------------------------
+
+outputs.tf
+
+output "cluster_name" {
+  value = google_container_cluster.securebank_gke.name
+}
+
+output "cluster_endpoint" {
+  value = google_container_cluster.securebank_gke.endpoint
+}
+
+output "cluster_location" {
+  value = google_container_cluster.securebank_gke.location
+}
+
+output "node_pool_name" {
+  value = google_container_node_pool.securebank_nodepool.name
+}
+
+output "gke_subnet_name" {
+  value = google_compute_subnetwork.securebank_gke_subnet.name
+}
+
+----------------------------------------------------------------------
+
+
+Before Terraform Apply
+
+Run:
+
+gcloud config set project bankingproject2027
+gcloud services enable container.googleapis.com
+gcloud services enable compute.googleapis.com
+gcloud services enable iam.googleapis.com
+gcloud services enable cloudresourcemanager.googleapis.com
+
+Deployment Commands:
+
+terraform fmt
+terraform init
+terraform validate
+terraform plan
+
+-------------------------------------------------------------
+
+Terraform Plan shows:
+
+Plan: 3 to add, 0 to change, 0 to destroy
+
+and outputs:
+
+securebank-gke
+securebank-nodepool
+securebank-gke-subnet
+
+So your GKE Terraform is ready for:
+
+terraform apply
+
+--------------------------------------------------------------
+
+gcloud container clusters list
+
+Result:
+
+NAME            : securebank-gke
+LOCATION        : us-central1-a
+STATUS          : RUNNING
+NODES           : 2
+kubectl Authentication
+gcloud container clusters get-credentials securebank-gke --zone us-central1-a
+
+Result:
+
+kubeconfig entry generated for securebank-gke
+
+Node Verification
+kubectl get nodes
+
+Result:
+
+Ready
+Ready
+
+-------------------------------------------------------------------
+
+In 4-GKE create a folder of k8s, In that folder create Namespace.yaml
+
+Namespace
+
+Create:
+
+k8s/namespace.yaml
+apiVersion: v1
+kind: Namespace
+
+metadata:
+  name: securebank
+
+-----------------------------------------------------------------------
+
+Apply:
+
+kubectl apply -f k8s/namespace.yaml
+
+Verify:
+
+kubectl get ns
+
+You should see:
+
+securebank
+
+------------------------------------------------------------------------
+
+Create the Deployment.yaml file in the k8s
+
+deployment.yaml:
+
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: securebank
+  namespace: securebank
+
+spec:
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: securebank
+
+  template:
+    metadata:
+      labels:
+        app: securebank
+
+    spec:
+      containers:
+      - name: securebank
+
+        image: devopsbyrushi/securebank:latest
+
+        imagePullPolicy: Always
+
+        ports:
+        - containerPort: 8080
+
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
+
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+
+----------------------------------------------------------
+
+Create service.yaml in k8s folder
+
+service.yaml
+
+apiVersion: v1
+kind: Service
+
+metadata:
+  name: securebank-service
+  namespace: securebank
+
+spec:
+  selector:
+    app: securebank
+
+  type: LoadBalancer
+
+  ports:
+  - port: 80
+    targetPort: 8080
+
+-----------------------------------------------------------
+
+Run:
+
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/service.yaml
+
+------------------------------------------------------------
+Verify
+kubectl get all -n securebank
+
+Output:
+
+deployment.apps/securebank
+replicaset.apps/securebank
+pod/securebank-xxxxx
+pod/securebank-xxxxx
+
+Status:
+
+2/2 Running
+
+Application Pods are healthy.
+
+----------------------------------------------------------
+
+Run:
+
+kubectl get svc -n securebank
+
+every 1 minute.
+
+Wait until:
+
+EXTERNAL-IP
+34.xx.xx.xx
+
+appears.
+
+Example:
+
+NAME                 TYPE           CLUSTER-IP      EXTERNAL-IP
+securebank-service   LoadBalancer   10.40.12.139   34.118.xx.xx
+Then Test Application
+
+Open:
+
+http://EXTERNAL-IP
+
+or
+
+http://EXTERNAL-IP:80
+
+Example:
+
+http://34.118.xx.xx
+
+------------------------------------------------------------------------
+
+Before touching Jenkins Pipeline, verify Jenkins server has:
+
+Maven
+mvn -version
+
+Java
+java -version
+
+Docker
+docker --version
+
+---------------------------------------------------------
+Kubectl
+kubectl version --client
+
+Output:
+
+Command 'kubectl' not found
+
+Without kubectl, Jenkins cannot deploy to GKE.
+
+Step 1: Install kubectl on Jenkins VM
+
+Run on Jenkins VM:
+
+sudo apt-get update
+
+sudo apt-get install -y kubectl
+
+If that doesn't work:
+
+sudo snap install kubectl --classic
+
+Verify:
+
+kubectl version --client
+
+Expected:
+
+Client Version: v1.xx.x
+-----------------------------------------------------------
+
+GCloud
+gcloud version
+
+GKE Access
+kubectl get nodes
+
+from Jenkins VM.
+
+This is the most important test.
+
+------------------------------------------------------------------------
+
+Connect Jenkins VM to GKE
+
+Run:
+
+gcloud container clusters get-credentials securebank-gke \
+--zone us-central1-a
+
+Verify:
+
+kubectl get nodes
+
+Expected:
+
+NAME                                STATUS
+gke-securebank-nodepool-xxxxx       Ready
+gke-securebank-nodepool-yyyyy       Ready
+
+-------------------------------------------------------------------------
+
+
+Authenticate Jenkins VM
+
+Since you're using a GCP VM, the easiest way is to use the VM's service account.
+
+Check the current project:
+
+gcloud config list
+
+Then run:
+
+gcloud config set project bankingproject2027
+
+(Replace with your actual GCP Project ID if different.)
+
+
+Your Jenkins VM has:
+
+No credentialed accounts.
+
+and
+
+gcloud config get-value account
+(unset)
+
+So the VM is not authenticated to GCP at all.
+
+------------------------------------------------------------------------
+
+Install the GKE Auth Plugin using the APT repository on your Jenkins VM, run these commands:
+
+sudo apt-get update
+
+sudo apt-get install -y apt-transport-https ca-certificates gnupg curl
+
+curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | \
+sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | \
+sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list
+
+sudo apt-get update
+
+sudo apt-get install -y google-cloud-sdk-gke-gcloud-auth-plugin
+
+Verify installation:
+
+gke-gcloud-auth-plugin --version
+
+You should see a version number.
+
+Then enable the plugin for kubectl:
+
+export USE_GKE_GCLOUD_AUTH_PLUGIN=True
+echo 'export USE_GKE_GCLOUD_AUTH_PLUGIN=True' >> ~/.bashrc
+source ~/.bashrc
+
+Verify:
+
+which gke-gcloud-auth-plugin
+
+--------------------------------------------------------------------------------
+
+
+Run:
+
+gcloud auth list
+
+shows:
+
+No credentialed accounts.
+
+That means the Jenkins VM has no Google Cloud authentication configured.
+
+
+Since you're already connected through the browser SSH, simply run:
+
+gcloud auth login
+
+It will display a URL.
+
+Open the URL in your browser.
+Login with the same Google account that owns the GCP project.
+Copy the verification code.
+Paste it back into the SSH terminal.
+
+Then run:
+
+gcloud auth list
+
+Expected:
+
+ACTIVE  ACCOUNT
+*       your-email@gmail.com
+
+Then:
+
+gcloud container clusters get-credentials securebank-gke \
+--zone us-central1-a \
+--project bankingproject2027
+
+Then:
+
+kubectl get nodes
+--------------------------------------------------------------------------------
+
+Configure Jenkins Pipeline
+
+Go back to Jenkins:
+
+Pipeline Configuration
+
+Repository URL
+
+https://github.com/<your-username>/<repo-name>.git
+
+Example:
+
+https://github.com/rushiawslabs/securebank.git
+
+Credentials
+
+-none-
+
+Leave it as None.
+
+Branch Specifier
+
+*/main
+
+(or */master if your repository uses master)
+
+Script Path
+
+Jenkinsfile
+
+-----------------------------------------------------------
+
+Install SonarQube Scanner Plugin in Jenkins
+
+Open Jenkins Dashboard
+Go to:
+Manage Jenkins
+→ Plugins
+→ Available Plugins
+Search for:
+SonarQube Scanner
+Select it and click:
+Install
+Restart Jenkins if required.
+
+------------------------------------------------------
+
+Generate SonarQube Token
+
+Login to SonarQube
+http://<SONARQUBE-IP>:9000
+Generate Token
+Click your profile icon
+Select My Account
+Open Security
+Under Tokens
+Token Name: jenkins-token
+Click Generate
+Copy the token immediately.
+
+Example:
+
+sqp_xxxxxxxxxxxxxxxxxxxxx
+
+
+-----------------------------------------------------------
+
+Add SonarQube Token in Jenkins Credentials
+Jenkins
+Manage Jenkins
+→ Credentials
+→ System
+→ Global Credentials
+→ Add Credentials
+
+Fill:
+
+Kind: Secret Text
+
+Secret:
+<PASTE_SONAR_TOKEN>
+
+ID:
+sonarqube-token
+
+Description:
+SonarQube Token
+
+Click:
+
+Create
+
+---------------------------------------------
+
+Configure SonarQube Server in Jenkins
+
+Go to:
+
+Manage Jenkins
+→ System
+
+Find:
+
+SonarQube Servers
+
+Click:
+
+Add SonarQube
+
+Fill:
+
+Name
+sonarqube
+Server URL
+http://<SONARQUBE-IP>:9000
+
+Example:
+
+http://34.xx.xx.xx:9000
+
+Server Authentication Token
+
+Select:
+
+sonarqube-token
+
+Check:
+
+Environment Variables
+
+Click:
+
+Save
+
+-------------------------------------------
+
+Step 1: Login to Docker Hub
+
+Open:
+
+https://hub.docker.com
+
+Sign in with your Docker Hub account.
+
+Step 2: Open Account Settings
+
+Click your profile icon (top-right).
+
+Select:
+
+Account Settings
+Step 3: Navigate to Personal Access Tokens
+
+Go to:
+
+Account Settings
+→ Personal Access Tokens
+
+Direct URL:
+
+https://hub.docker.com/settings/personal-access-tokens
+Step 4: Create New Token
+
+Click:
+
+Generate New Token
+
+Fill the details:
+
+Token Description
+jenkins-gke-project
+Access Permissions
+
+Choose:
+
+Read, Write, Delete
+
+For CI/CD pipelines, Read & Write is usually sufficient.
+
+Step 5: Generate Token
+
+Click:
+
+Generate
+
+Docker Hub will display a token similar to:
+
+dckr_pat_xxxxxxxxxxxxxxxxxxxxxxxxx
+
+⚠️ Copy it immediately. You may not be able to see it again.
+-------------------------------------------------------------------
+
+
+Add Jenkins Credentials
+DockerHub
+
+Manage Jenkins → Credentials
+
+Add:
+
+ID: dockerhub-creds
+Username: devopsbyrushi
+Password: DockerHub Password/Token
+
+--------------------------------------------
+
+Before clicking Build Now, verify:
+
+Java
+java -version
+Maven
+mvn -version
+Docker
+docker --version
+Jenkins Docker Access
+sudo -u jenkins docker ps
+SonarQube Reachability
+
+From Jenkins VM:
+
+curl http://SONAR-IP:9000
+
+
+Then Run
+
+Click:
+
+Build Now
+
+
+Your Jenkinsfile currently shows:
+
+Kubernetes : DEPLOYMENT SUCCESS
+
+
+----------------------------------------------------------------
+
+Now Verify DockerHub
+
+Go to:
+
+https://hub.docker.com/
+
+Check whether you see:
+
+devopsbyrushi/securebank
+
+with a newly pushed image.
+
+If yes:
+
+✅ DockerHub integration is fully working.
+
+
+-------------------------------------------------------------
+
+Verify:
+
+
+kubectl get nodes
+shows:
+
+Ready
+Ready
+
+Both worker nodes are healthy.
+
+-------------------------------------------------------------
+
+Your namespace exists:
+
+securebank
+
+Status:
+
+Active
+
+So Kubernetes deployment has actually happened.
+
+--------------------------------------------------------------
+
+Run these commands on the Jenkins VM:
+
+kubectl get all -n securebank
+
+Share the output.
+
+Then run:
+
+kubectl get svc -n securebank
+
+Expected output:
+
+NAME         TYPE           EXTERNAL-IP
+securebank   LoadBalancer   xx.xx.xx.xx
+
+
+---------------------------------------------------------------------------
+
+ow Test the Application
+
+Open:
+
+http://External-IP
+
+If your application listens on port 8080 internally and service.yaml maps:
+
+port: 80
+targetPort: 8080
+
+then the above URL should work directly.
+
+----------------------------------------------------------------------------
+
+In Jenkins VM run:
+
+kubectl describe deployment securebank -n securebank
+
+and
+
+kubectl describe svc securebank-service -n securebank
+
+No changes required; this is just a final health verification.
+
+
+-----------------------------------------------------------------------------
+
+Next Step
+
+From your Monitoring Server:
+
+Verify Prometheus
+
+Open:
+
+http://<PROMETHEUS_SERVER_IP>:9090
+Verify Grafana
+
+Open:
+
+http://<GRAFANA_SERVER_IP>:3000
+
+-------------------------------------------------------------------------
+
+Go to the Jenkins vm and go to the ansible folder where ansible yml files present
+Create:
+monitoring-node-exporter-installation.yml
+
+---
+- name: Install Node Exporter
+  hosts: master
+  become: yes
+
+  tasks:
+
+    - name: Create node_exporter user
+      user:
+        name: node_exporter
+        shell: /bin/false
+        system: yes
+
+    - name: Download Node Exporter
+      get_url:
+        url: https://github.com/prometheus/node_exporter/releases/download/v1.8.2/node_exporter-1.8.2.linux-amd64.tar.gz
+        dest: /tmp/node_exporter.tar.gz
+
+    - name: Extract Node Exporter
+      unarchive:
+        src: /tmp/node_exporter.tar.gz
+        dest: /tmp
+        remote_src: yes
+
+    - name: Copy Binary
+      copy:
+        src: /tmp/node_exporter-1.8.2.linux-amd64/node_exporter
+        dest: /usr/local/bin/node_exporter
+        remote_src: yes
+        mode: '0755'
+
+    - name: Create Service File
+      copy:
+        dest: /etc/systemd/system/node_exporter.service
+        content: |
+          [Unit]
+          Description=Node Exporter
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          User=node_exporter
+          Group=node_exporter
+          Type=simple
+          ExecStart=/usr/local/bin/node_exporter
+
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Reload systemd
+      systemd:
+        daemon_reload: yes
+
+    - name: Enable Node Exporter
+      systemd:
+        name: node_exporter
+        enabled: yes
+        state: started
+
+------------------------------------------------------------------
+
+Verify Node Exporter on All Servers
+
+From Jenkins VM:
+
+ansible all -i hosts -m shell -a "systemctl status node_exporter --no-pager"
+
+Or
+
+ansible all -i hosts -m shell -a "ss -tulpn | grep 9100"
+
+Expected:
+
+LISTEN 0 4096 0.0.0.0:9100
+
+------------------------------------------------------------------
+Check Node Exporter URLs
+
+Open these URLs in browser:
+
+http://JENKINS_VM_IP:9100/metrics
+http://SONAR_VM_IP:9100/metrics
+http://MONITORING_VM_IP:9100/metrics
+http://MASTER_VM_IP:9100/metrics
+----------------------------------------------------------------------
+
+Run:
+
+Create New Prometheus Config on Monitoring VM
+
+SSH into Monitoring VM and create:
+
+nano prometheus.yml
+
+Paste:
+
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+
+  - job_name: "prometheus"
+    static_configs:
+      - targets:
+          - "localhost:9090"
+
+  - job_name: "jenkins-server"
+    static_configs:
+      - targets:
+          - "34.42.219.103:9100"
+
+  - job_name: "docker-server"
+    static_configs:
+      - targets:
+          - "34.63.83.169:9100"
+
+  - job_name: "sonarqube-server"
+    static_configs:
+      - targets:
+          - "34.133.47.1:9100"
+
+  - job_name: "monitoring-server"
+    static_configs:
+      - targets:
+          - "136.119.108.107:9100"
+
+Save:
+
+Ctrl+O
+Enter
+Ctrl+X
+Step 2: Copy Config into Running Container
+
+Execute:
+
+docker cp prometheus.yml prometheus:/etc/prometheus/prometheus.yml
+
+Restart Prometheus
+docker restart prometheus
+
+Verify:
+
+docker ps
+
+Prometheus should be Up.
+
+-------------------------------------------------------------------------------
+
+Verify Targets
+
+Open:
+
+http://Monitoring-IP:9090/targets
+
+Expected:
+
+prometheus        UP
+jenkins-server    UP
+docker-server     UP
+sonarqube-server  UP
+monitoring-server UP
+
+---------------------------------------------------------------------------------
+
+If All Targets Are UP
+
+Open Grafana:
+
+http://136.119.108.107:3000
+
+Add datasource:
+
+
+Add Prometheus Data Source
+Click Add new connection (green icon).
+In the search box, type:
+Prometheus
+Select Prometheus.
+Click Add new data source.
+Configure Prometheus
+
+In the URL field enter:
+
+http://prometheus:9090
+
+If Grafana and Prometheus are running in Docker containers on the same monitoring VM.
+
+If that doesn't work, use:
+
+http://136.119.108.107:9090
+
+or
+
+http://localhost:9090
+
+depending on your Docker networking.
+
+Test Connection
+
+Click:
+
+Save & Test
+
+You should get:
+
+Successfully queried the Prometheus API
+After Data Source is Added
+
+Go to:
+
+Dashboards
+→ New
+→ Import Dashboard
+
+Import these popular Node Exporter dashboards:
+
+Dashboard ID:
+
+1860
+
+(Node Exporter Full)
+
+or
+
+14513
+
+(Node Exporter Host Overview)
+
+Select your Prometheus datasource and click Import.
+
+----------------------------------------------------------
+After importing, go to:
+
+Dashboards
+→ Dashboards
+→ Node Exporter Full
+
+You should see graphs for:
+
+CPU Usage
+Memory Usage
+Disk Usage
+Network Traffic
+Load Average
+Filesystem Usage
+
+-----------------------------------------------------------
+
+Next Step (Monitoring Phase)
+
+Now create these Grafana dashboards:
+
+Dashboard 1: Node Exporter Full
+
+Already completed.
+
+Dashboard ID:
+
+1860
+
+----------------------------------------
+
+Dashboard 2: Jenkins Monitoring
+
+Import Dashboard:
+
+9964
+
+Steps:
+
+Dashboards
+→ New
+→ Import
+→ Enter ID 9964
+→ Load
+→ Select Prometheus datasource
+→ Import
+
+--------------------------------------------------------------------------
