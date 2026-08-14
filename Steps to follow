@@ -973,7 +973,7 @@ monitoring-node-exporter-installation.yml
 
 ---
 - name: Install Node Exporter
-  hosts: master
+  hosts: all
   become: yes
 
   tasks:
