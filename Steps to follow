@@ -1080,22 +1080,28 @@ scrape_configs:
   - job_name: "jenkins-server"
     static_configs:
       - targets:
-          - "34.42.219.103:9100"
+          - "136.65.127.248:9100"
+
+  - job_name: "jenkins"
+    metrics_path: "/prometheus"
+    static_configs:
+      - targets:
+          - "136.65.127.248:8080"
 
   - job_name: "docker-server"
     static_configs:
       - targets:
-          - "34.63.83.169:9100"
+          - "35.224.241.73:9100"
 
   - job_name: "sonarqube-server"
     static_configs:
       - targets:
-          - "34.133.47.1:9100"
+          - "34.28.85.15:9100"
 
   - job_name: "monitoring-server"
     static_configs:
       - targets:
-          - "136.119.108.107:9100"
+          - "35.188.48.240:9100"
 
 Save:
 
