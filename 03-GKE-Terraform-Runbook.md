@@ -240,9 +240,9 @@ variable "machine_type" {
 ```hcl
 project_id = "bankingproject2027"
 
-region = "us-central1"
+region = "asia-south1"
 
-zone = "us-central1-a"
+zone = "asia-south1-c"
 
 network_name = "bankingproject2027-vpc"
 
@@ -342,9 +342,12 @@ resource "google_container_node_pool" "securebank_nodepool" {
     ]
 
     labels = {
+
       application = "securebank"
+
       environment = "dev"
-      managed_by  = "terraform"
+
+      managed_by = "terraform"
     }
 
     tags = [
